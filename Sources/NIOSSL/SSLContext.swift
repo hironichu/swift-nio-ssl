@@ -292,6 +292,14 @@ private func sslContextCallback(ssl: OpaquePointer?, arg: UnsafeMutableRawPointe
 ///
 /// > Warning: Avoid creating ``NIOSSLContext``s on any `EventLoop` because it does _blocking disk I/O_.
 public final class NIOSSLContext {
+    internal enum OperatingMode {
+        case classic
+        case quic
+        
+        var isQuic:Bool {
+            self == .quic
+        }
+    }
     fileprivate let sslContext: OpaquePointer
     private let callbackManager: CallbackManagerProtocol?
     private var keyLogManager: KeyLogCallbackManager?
@@ -299,7 +307,15 @@ public final class NIOSSLContext {
     internal var pskClientConfigurationCallback: _NIOPSKClientIdentityProvider?
     internal var pskServerConfigurationCallback: _NIOPSKServerIdentityProvider?
     internal let configuration: TLSConfiguration
-
+    internal let mode:OperatingMode
+    
+    private var quicMethods = SSL_QUIC_METHOD(
+        set_read_secret: { SSLConnection.setReadSecret($0, $1, $2, $3, $4) },
+        set_write_secret: { SSLConnection.setWriteSecret($0, $1, $2, $3, $4) },
+        add_handshake_data: { SSLConnection.addHandshakeData($0, $1, $2, $3) },
+        flush_flight: { SSLConnection.flushFlight($0) },
+        send_alert: { SSLConnection.sendAlert($0, $1, $2) }
+    )
     /// Initialize a context that will create multiple connections, all with the same
     /// configuration.
     internal init(
@@ -472,7 +488,16 @@ public final class NIOSSLContext {
         self.sslContext = context
         self.configuration = configuration
         self.callbackManager = callbackManager
-
+        
+        if var quicParams = configuration.quicParams {
+            // If quicParams are set, ensure the minTLSVersion is 1.3
+            // Note: We don't register our QUIC Methods or TransportParams here. NIOSSLContext spawns a new child context for each new connection. The params and method handlers should be installed on the Connection Context
+            precondition(configuration.minimumTLSVersion == .tlsv13, "SSLConnection::QUIC Error - QUIC only supports TLS Versions 1.3 and above")
+            self.mode = .quic
+        } else {
+            self.mode = .classic
+        }
+        
         // Always make it possible to get from an SSL_CTX structure back to this.
         let ptrToSelf = Unmanaged.passUnretained(self).toOpaque()
         CNIOBoringSSLShims_SSL_CTX_set_app_data(context, ptrToSelf)

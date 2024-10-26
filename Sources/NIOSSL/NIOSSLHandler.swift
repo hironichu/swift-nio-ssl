@@ -16,6 +16,14 @@
 import NIOCore
 import NIOTLS
 
+public protocol NIOSSLQuicDelegate {
+    var ourParams:[UInt8] { get }
+    var useLegacyQuicParams:Bool { get }
+    func onReadSecret(epoch:UInt32, cipherSuite:UInt16, secret:[UInt8]) -> Void
+    func onWriteSecret(epoch:UInt32, cipherSuite:UInt16, secret:[UInt8]) -> Void
+    func onPeerParams(params:[UInt8]) -> Void
+}
+
 /// The base class for all NIOSSL handlers.
 ///
 /// This class cannot actually be instantiated by users directly: instead, users must select
@@ -25,6 +33,7 @@ import NIOTLS
 /// of a TLS connection there is no meaningful distinction between a server and a client.
 /// For this reason almost the entirety of the implementation for the channel and server
 /// handlers in NIOSSL is shared, in the form of this parent class.
+
 public class NIOSSLHandler: ChannelInboundHandler, ChannelOutboundHandler, RemovableChannelHandler {
     /// The default maximum write size. We cannot pass writes larger than this size to
     /// BoringSSL.
@@ -246,7 +255,18 @@ public class NIOSSLHandler: ChannelInboundHandler, ChannelOutboundHandler, Remov
     public func write(context: ChannelHandlerContext, data: NIOAny, promise: EventLoopPromise<Void>?) {
         bufferWrite(data: unwrapOutboundIn(data), promise: promise)
     }
+    
+    public func setQuicDelegate(_ delegate:NIOSSLQuicDelegate) {
+        if let ctx = self.storedContext {
+            precondition(ctx.channel.isActive == false, "A QUIC Delegate can only be set BEFORE channel activation.")
+        }
+        self.connection.setQuicDelegate(delegate)
+    }
 
+    public func flush() {
+        self.flush(context: storedContext!)
+    }
+    
     public func flush(context: ChannelHandlerContext) {
         switch self.state {
         case .idle, .handshaking, .additionalVerification:
@@ -417,6 +437,7 @@ public class NIOSSLHandler: ChannelInboundHandler, ChannelOutboundHandler, Remov
     private func completeHandshake(context: ChannelHandlerContext) {
         writeDataToNetwork(context: context, promise: nil)
 
+        if self.connection.mode.isQuic { return }
         // TODO(cory): This event should probably fire out of the BoringSSL info callback.
         let negotiatedProtocol = connection.getAlpnProtocol()
         context.fireUserInboundEventTriggered(TLSUserEvent.handshakeCompleted(negotiatedProtocol: negotiatedProtocol))

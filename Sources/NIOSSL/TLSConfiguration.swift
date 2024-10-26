@@ -415,6 +415,12 @@ public struct TLSConfiguration {
     /// Send the CA names derived from the ``trustRoots`` for client authentication.
     /// This instructs the client which identities can be used by evaluating what CA the identity certificate was issued from.
     public var sendCANameList: Bool
+    
+    /// Quic Parameters Extension
+    public var quicParams:[UInt8]? = nil
+    
+    /// Use Legacy Quic Parameters (draft 0 - 30)
+    public var useLegacyQuicParams:Bool = false
 
     private init(
         cipherSuiteValues: [NIOTLSCipher] = [],
@@ -436,7 +442,8 @@ public struct TLSConfiguration {
         sslContextCallback: NIOSSLContextCallback? = nil,
         pskClientProvider: NIOPSKClientIdentityProvider? = nil,
         pskServerProvider: NIOPSKServerIdentityProvider? = nil,
-        pskHint: String? = nil
+        pskHint: String? = nil,
+        quicParams:[UInt8]? = nil
     ) {
         self.cipherSuites = cipherSuites
         self.verifySignatureAlgorithms = verifySignatureAlgorithms
@@ -458,6 +465,7 @@ public struct TLSConfiguration {
         self.pskClientProvider = pskClientProvider
         self.pskServerProvider = pskServerProvider
         self.pskHint = pskHint
+        self.quicParams = quicParams
         if !cipherSuiteValues.isEmpty {
             self.cipherSuiteValues = cipherSuiteValues
         }
